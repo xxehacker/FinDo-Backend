@@ -43,7 +43,7 @@ Install FinDo using one of the following methods:
 2. Navigate to the project directory:
 
 ```sh
-❯ cd FinDo
+❯ cd FinDo-Backend
 ```
 
 3. Install the project dependencies:
