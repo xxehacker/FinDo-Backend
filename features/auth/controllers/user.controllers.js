@@ -2,6 +2,7 @@ import User from "../models/user.model.js";
 import { ApiResponse } from "@/../../utils/ApiResponse.js";
 import { asyncHandler } from "@/../../utils/asyncHandler.js";
 import bcrypt from "bcryptjs";
+import generateToken from "@/../../utils/generateToken.js";
 
 const handleSignup = asyncHandler(async (req, res) => {
   const { username, email, password, phone } = req.body;
@@ -73,9 +74,45 @@ const handleSignup = asyncHandler(async (req, res) => {
 });
 
 const handleLogin = asyncHandler(async (req, res) => {
-  res.status(200).json({
-    message: "Login successfull",
+  const { username, email, password } = req.body;
+
+  if ((!username && !email) || !password) {
+    return res
+      .status(400)
+      .json(new ApiResponse(400, null, "Missing required fields"));
+  }
+
+  const user = await User.findOne({
+    $or: [{ username }, { email }],
   });
+
+  if (!user) {
+    return res.status(401).json(new ApiResponse(401, null, "User not found"));
+  }
+
+  const isPasswordMatch = await bcrypt.compare(password, user.password);
+
+  if (!isPasswordMatch) {
+    return res
+      .status(401)
+      .json(new ApiResponse(401, null, "Invalid credentials"));
+  }
+
+  //! Short hand
+  // if (!user || !(await bcrypt.compare(password, user.password))) {
+  //   return res.status(401).json(new ApiResponse(401, null, "Invalid credentials"));
+  // }
+
+  const token = generateToken(user);
+
+  //! Sanitize user object
+  const { password: _, ...sanitizedUser } = user._doc;
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, { user: sanitizedUser, token }, "Login successful")
+    );
 });
 
 export { handleSignup, handleLogin };
