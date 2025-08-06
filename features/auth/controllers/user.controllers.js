@@ -82,6 +82,12 @@ const handleLogin = asyncHandler(async (req, res) => {
       .json(new ApiResponse(400, null, "Missing required fields"));
   }
 
+  // if (
+  //   [username, email, password].some((field) => field?.trim() === "")
+  // ) {
+  //   throw new ApiError(400, "All fields are required");
+  // }
+
   const user = await User.findOne({
     $or: [{ username }, { email }],
   });
@@ -115,4 +121,24 @@ const handleLogin = asyncHandler(async (req, res) => {
     );
 });
 
-export { handleSignup, handleLogin };
+const handleCheckUser = asyncHandler(async (req, res) => {
+  const verifyUser = await User.findById(req?.user?.id);
+
+  if (!verifyUser) {
+    return res.status(404).json(new ApiResponse(404, null, "User not found"));
+  }
+
+  const { password: _, ...sanitizedUser } = verifyUser._doc;
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { user: sanitizedUser },
+        "User successfully verified"
+      )
+    );
+});
+
+export { handleSignup, handleLogin, handleCheckUser };
