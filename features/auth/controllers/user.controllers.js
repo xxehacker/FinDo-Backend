@@ -22,11 +22,22 @@ const handleSignup = asyncHandler(async (req, res) => {
         .json(new ApiResponse(409, null, "Email already exists"));
     }
 
-    const existingPhone = await User.findOne({ phone });
-    if (existingPhone) {
-      return res
-        .status(409)
-        .json(new ApiResponse(409, null, "Phone number already exists"));
+    if (phone) {
+      const phoneRegex = /^[0-9]{10}$/;
+      if (!phoneRegex.test(phone)) {
+        return res
+          .status(400)
+          .json(new ApiResponse(400, null, "Invalid phone number format"));
+      }
+    }
+
+    if (phone) {
+      const existingPhone = await User.findOne({ phone });
+      if (existingPhone) {
+        return res
+          .status(409)
+          .json(new ApiResponse(409, null, "Phone number already exists"));
+      }
     }
 
     //! hashing password
@@ -81,12 +92,6 @@ const handleLogin = asyncHandler(async (req, res) => {
       .status(400)
       .json(new ApiResponse(400, null, "Missing required fields"));
   }
-
-  // if (
-  //   [username, email, password].some((field) => field?.trim() === "")
-  // ) {
-  //   throw new ApiError(400, "All fields are required");
-  // }
 
   const user = await User.findOne({
     $or: [{ username }, { email }],

@@ -11,10 +11,6 @@ const userSchema = new mongoose.Schema(
       type: String,
       unique: true,
       trim: true,
-      validate: {
-        validator: (value) => /^\d{10}$/.test(String(value).toLowerCase()),
-        message: "Phone number must be a 10-digit number",
-      },
     },
     email: {
       type: String,
@@ -36,14 +32,6 @@ const userSchema = new mongoose.Schema(
       minlength: 6,
       maxlength: 128,
       trim: true,
-      validate: {
-        validator: (value) =>
-          /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{6,}$/.test(
-            String(value).toLowerCase()
-          ),
-        message:
-          "Password must be at least 6 characters long and contain at least one letter and one number",
-      },
     },
     role: {
       type: String,

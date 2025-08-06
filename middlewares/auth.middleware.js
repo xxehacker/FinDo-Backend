@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import { ApiResponse } from "../utils/ApiResponse.js";
+import User from "../features/auth/models/user.model.js";
 
 const authenticateToken = async (req, res, next) => {
   //! Extract token from Authorization header

@@ -24,13 +24,18 @@ const allowedOrigins = process.env.CORS_ORIGIN.split(",");
 //! middleware
 app.use(
   cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+    origin: function (origin, callback) {
+      //! Allow requests with no origin (like mobile apps or curl)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        callback(new Error("Not allowed by CORS"));
+        console.warn(`Blocked by CORS: ${origin}`);
+        callback(null, false); //! Don't throw error, just deny
       }
     },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
   })
 );
@@ -53,7 +58,7 @@ app.use(helmet());
 
 //! routes declaration
 app.get("/", (req, res) => {
-  res.send("Welcome To School ERP");
+  res.send("Welcome To Findo API");
 });
 app.use("/api/v1", routes);
 app.use(errorHandler);
