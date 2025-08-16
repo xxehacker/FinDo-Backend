@@ -1,4 +1,4 @@
-import asyncHandler from "../../../utils/asyncHandler.js";
+import { asyncHandler } from "@/../../utils/asyncHandler.js";
 import Bank from "../models/bank.model.js";
 import { ApiResponse } from "../../../utils/ApiResponse.js";
 
