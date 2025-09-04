@@ -45,7 +45,7 @@ const TransactionSchema = new mongoose.Schema(
     },
     bankAccount: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "BankAccount",
+      ref: "Bank",
     },
     transactionMethod: {
       type: String,
