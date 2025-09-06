@@ -5,12 +5,12 @@ import { ApiResponse } from "../../../utils/ApiResponse.js";
 
 //! create category
 const handleCreateCategory = asyncHandler(async (req, res) => {
-  const { name, description } = req.body;
+  const { name, description, status } = req.body;
   const userId = req.user.id;
 
   try {
-    if (!name || !description) {
-      throw new ApiError(400, "Name and description are required");
+    if (!name || !description || !status) {
+      throw new ApiError(400, "Name ,description and status are required");
     }
 
     if (!userId) {
@@ -20,6 +20,7 @@ const handleCreateCategory = asyncHandler(async (req, res) => {
     const category = await Category.create({
       name,
       description,
+      status,
       createdBy: userId,
     });
     res
@@ -83,7 +84,7 @@ const handleGetCategory = async (req, res) => {
 //! edit category
 const handleEditCategory = async (req, res) => {
   const { id } = req.params;
-  const { name, description } = req.body;
+  const { name, description, status } = req.body;
   try {
     if (!id) {
       throw new ApiError(400, "Category id is missing");
@@ -91,7 +92,7 @@ const handleEditCategory = async (req, res) => {
 
     const category = await Category.findOneAndUpdate(
       { _id: id },
-      { $set: { name, description } },
+      { $set: { name, description, status } },
       { new: true }
     );
 

@@ -4,15 +4,16 @@ import transactionRouter from "./transaction/routes/transaction.routes.js";
 import { authenticateToken } from "../middlewares/auth.middleware.js";
 import taskRouter from './task/routes/task.routes.js'
 import bankRouter from './bankAccount/routes/bank.routes.js'
+import categoryRouter from './category/routes/category.routes.js'
 
 
 const router = express.Router();
 
 router.use("/auth", authRouter);
 router.use("/transaction", authenticateToken, transactionRouter);
-router.use("/category", transactionRouter);
-router.use("/bank-account", bankRouter);
-router.use("/task", taskRouter);
+router.use("/category", authenticateToken,categoryRouter);
+router.use("/bank-account", authenticateToken,bankRouter);
+router.use("/task", authenticateToken,taskRouter);
 
 
 export default router;
