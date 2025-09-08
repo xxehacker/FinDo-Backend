@@ -1,29 +1,14 @@
 import { asyncHandler } from "@/../../utils/asyncHandler.js";
 import Bank from "../models/bank.model.js";
 import { ApiResponse } from "../../../utils/ApiResponse.js";
+import { ApiError } from "../../../utils/ApiError.js";
 
-//! Centralized error handling for Mongoose errors
-const handleMongooseError = (error) => {
-  if (error.name === "CastError") {
-    return new ApiResponse(400, null, "Invalid ID format");
-  }
-  if (error.name === "ValidationError") {
-    return new ApiResponse(
-      400,
-      null,
-      Object.values(error.errors)
-        .map((err) => err.message)
-        .join(", ")
-    );
-  }
-  return new ApiResponse(500, null, "Internal Server Error");
-};
 
 //! Get all bank accounts for the authenticated user
 const handleGetBankAccounts = asyncHandler(async (req, res) => {
   try {
     const bankAccounts = await Bank.find({ user: req.user.id })
-      .select("name ifsc branch accountNumber amount accountType accountUsedAs")
+      .select("name ifsc branch accountNumber amount accountType")
       .populate("user", "username email")
       .lean();
 
@@ -32,12 +17,12 @@ const handleGetBankAccounts = asyncHandler(async (req, res) => {
       .json(
         new ApiResponse(
           200,
-          { bankAccounts },
+          bankAccounts,
           bankAccounts.length ? "Bank accounts found" : "No bank accounts found"
         )
       );
   } catch (error) {
-    return res.status(error.status || 500).json(handleMongooseError(error));
+    throw new ApiError(500, null, "Internal Server Error");
   }
 });
 
@@ -51,15 +36,15 @@ const handleGetBankAccountById = asyncHandler(async (req, res) => {
         .json(new ApiResponse(400, null, "Bank account ID is required"));
     }
 
-    const Bank = await Bank.findOne({
+    const getbank = await Bank.findOne({
       _id: id,
       user: req.user.id,
     })
-      .select("name ifsc branch accountNumber amount accountType accountUsedAs")
+      .select("name ifsc branch accountNumber amount accountType")
       .populate("user", "username  email")
       .lean();
 
-    if (!Bank) {
+    if (!getbank) {
       return res
         .status(404)
         .json(new ApiResponse(404, null, "Bank account not found"));
@@ -67,47 +52,41 @@ const handleGetBankAccountById = asyncHandler(async (req, res) => {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, { Bank }, "Bank account found"));
+      .json(new ApiResponse(200, getbank, "Bank account found"));
   } catch (error) {
-    return res.status(error.status || 500).json(handleMongooseError(error));
+    throw new ApiError(500, null, "Internal Server Error");
   }
 });
 
 //! Create a new bank account
 const handleCreateBankAccount = asyncHandler(async (req, res) => {
-  try {
-    const {
-      name,
-      ifsc,
-      branch,
-      accountNumber,
-      amount,
-      accountType,
-      accountUsedAs,
-    } = req.body;
+  const { name, ifsc, branch, accountNumber, amount, accountType } = req.body;
+  console.table(req.body);
+  console.log(req?.user);
 
+  try {
     if (!name) {
       return res
         .status(400)
         .json(new ApiResponse(400, null, "Bank account name is required"));
     }
 
-    const Bank = await Bank.create({
+    const createdBank = await Bank.create({
       name,
       ifsc,
       branch,
       accountNumber,
       amount,
       accountType,
-      accountUsedAs,
-      user: req.user.id,
+      user: req?.user?._id,
     });
 
     return res
       .status(201)
-      .json(new ApiResponse(201, { Bank }, "Bank account created"));
+      .json(new ApiResponse(201, createdBank, "Bank account created"));
   } catch (error) {
-    return res.status(error.status || 500).json(handleMongooseError(error));
+    console.log("Internal error", error);
+    throw new ApiError(500, null, "Internal Server Error");
   }
 });
 
@@ -121,7 +100,7 @@ const handleDeleteBankAccount = asyncHandler(async (req, res) => {
         .json(new ApiResponse(400, null, "Bank account ID is required"));
     }
 
-    const Bank = await Bank.findOneAndDelete({
+    const deletedBank = await Bank.findOneAndDelete({
       _id: id,
       user: req.user.id,
     });
@@ -135,32 +114,32 @@ const handleDeleteBankAccount = asyncHandler(async (req, res) => {
     return res
       .status(200)
       .json(
-        new ApiResponse(200, { Bank }, "Bank account deleted successfully")
+        new ApiResponse(200, deletedBank, "Bank account deleted successfully")
       );
   } catch (error) {
-    return res.status(error.status || 500).json(handleMongooseError(error));
+    throw new ApiError(500, null, "Internal Server Error");
   }
 });
 
 //! Edit a bank account
 const handleEditBankAccount = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const {
+    name,
+    ifsc,
+    branch,
+    accountNumber,
+    amount,
+    accountType,
+    accountUsedAs,
+  } = req.body;
+
   try {
-    const { id } = req.params;
     if (!id) {
       return res
         .status(400)
         .json(new ApiResponse(400, null, "Bank account ID is required"));
     }
-
-    const {
-      name,
-      ifsc,
-      branch,
-      accountNumber,
-      amount,
-      accountType,
-      accountUsedAs,
-    } = req.body;
 
     if (!name) {
       return res
@@ -168,7 +147,7 @@ const handleEditBankAccount = asyncHandler(async (req, res) => {
         .json(new ApiResponse(400, null, "Bank account name is required"));
     }
 
-    const Bank = await Bank.findOneAndUpdate(
+    const updatedBank = await Bank.findOneAndUpdate(
       { _id: id, user: req.user.id },
       {
         $set: {
@@ -187,7 +166,7 @@ const handleEditBankAccount = asyncHandler(async (req, res) => {
       .populate("user", "username email")
       .lean();
 
-    if (!Bank) {
+    if (!updatedBank) {
       return res
         .status(404)
         .json(new ApiResponse(404, null, "Bank account not found"));
@@ -195,9 +174,9 @@ const handleEditBankAccount = asyncHandler(async (req, res) => {
 
     return res
       .status(200)
-      .json(new ApiResponse(200, { Bank }, "Bank account updated"));
+      .json(new ApiResponse(200, updatedBank, "Bank account updated"));
   } catch (error) {
-    return res.status(error.status || 500).json(handleMongooseError(error));
+    throw new ApiError(500, null, "Internal Server Error");
   }
 });
 

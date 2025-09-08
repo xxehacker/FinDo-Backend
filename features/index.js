@@ -12,7 +12,7 @@ const router = express.Router();
 router.use("/auth", authRouter);
 router.use("/transaction", authenticateToken, transactionRouter);
 router.use("/category", authenticateToken,categoryRouter);
-router.use("/bank-account", authenticateToken,bankRouter);
+router.use("/bank", authenticateToken,bankRouter);
 router.use("/task", authenticateToken,taskRouter);
 
 

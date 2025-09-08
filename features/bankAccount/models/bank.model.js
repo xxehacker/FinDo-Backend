@@ -35,12 +35,12 @@ const BankSchema = new mongoose.Schema({
     default: "primary",
     trim: true,
   },
-  acountUsedAs: {
-    type: String,
-    enum: ["savings", "current"],
-    default: "savings",
-    trim: true,
-  },
+  // acountUsedAs: {
+  //   type: String,
+  //   enum: ["savings", "current"],
+  //   default: "savings",
+  //   trim: true,
+  // },
 });
 
 const Bank = mongoose.model("Bank", BankSchema);
