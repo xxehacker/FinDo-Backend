@@ -7,9 +7,9 @@ const handleGetTransactions = asyncHandler(async (req, res) => {
     const userId = req?.user?.id;
     const transactions = await Transaction.find({ user: userId })
       .populate("dailyTransactions", "totalAmount")
-      .populate("user", "username");
-    // .populate("bankAccount", "name")
-    // .populate("category", "name")
+      .populate("user", "username")
+      .populate("bankAccount", "name accountNumber")
+      .populate("category", "name");
 
     if (!transactions) {
       return res
