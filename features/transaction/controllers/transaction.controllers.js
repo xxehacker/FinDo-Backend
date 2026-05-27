@@ -1,157 +1,88 @@
-import { ApiResponse } from "@/../../utils/ApiResponse.js";
-import { asyncHandler } from "@/../../utils/asyncHandler.js";
+// transaction.controllers.js
+import mongoose from "mongoose";
+import { asyncHandler } from "../../../utils/asyncHandler.js";
 import Transaction from "../models/transaction.model.js";
+import DayWiseTransaction from "../models/dailyTransaction.model.js";
+import { ApiResponse } from "../../../utils/ApiResponse.js";
 
-const handleGetTransactions = asyncHandler(async (req, res) => {
+const updateDayWiseSummary = async (transaction, operation) => {
   try {
-    const userId = req?.user?.id;
-    const transactions = await Transaction.find({ user: userId })
-      .populate("dailyTransactions", "totalAmount")
-      .populate("user", "username")
-      .populate("bankAccount", "name accountNumber")
-      .populate("category", "name");
+    const { user, date, type, amount, _id } = transaction;
 
-    if (!transactions) {
-      return res
-        .status(404)
-        .json(
-          new ApiResponse(404, null, "There are no transactions for this user")
-        );
+    if (!mongoose.isValidObjectId(_id)) {
+      throw new Error("Invalid transaction ID");
     }
 
-    return res
-      .status(200)
-      .json(new ApiResponse(200, { transactions }, "Transactions found"));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(new ApiResponse(500, null, `Internal Server Error: ${error}`));
-  }
-});
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
 
-const handleUpdateTransaction = asyncHandler(async (req, res) => {
-  const {
-    type,
-    amount,
-    description,
-    category,
-    date,
-    bankAccount,
-    transactionMethod,
-    transactionStatus,
-    notes,
-    timeOFDay,
-  } = req.body;
+    let dayWiseTransaction = await DayWiseTransaction.findOne({
+      user,
+      date: startOfDay,
+    });
 
-  try {
-    const transaction = await Transaction.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        user: req.user.id, //! Only update if the user is the owner
-      },
-      {
-        $set: {
-          type,
-          amount,
-          description,
-          category,
-          date,
-          bankAccount: bankAccount || null,
-          transactionMethod,
-          transactionStatus,
-          notes,
-          timeOFDay,
-        },
-      },
-      {
-        new: true,
-        runValidators: true, //! Run schema validators on update
+    if (operation === "create") {
+      if (!dayWiseTransaction) {
+        dayWiseTransaction = new DayWiseTransaction({
+          user,
+          date: startOfDay,
+          totalIncome: type === "income" ? amount : 0,
+          totalExpense: type === "expense" ? amount : 0,
+          transactions: [_id],
+        });
+      } else {
+        if (type === "income") {
+          dayWiseTransaction.totalIncome += amount;
+        } else if (type === "expense") {
+          dayWiseTransaction.totalExpense += amount;
+        }
+        dayWiseTransaction.transactions.push(_id);
       }
-    );
-
-    if (!transaction) {
-      throw new Error(
-        "Transaction not found or you are not authorized to update it"
+    } else if (operation === "update") {
+      if (!dayWiseTransaction) {
+        throw new Error("DayWiseTransaction not found for update");
+      }
+      const transactions = await Transaction.find({
+        _id: { $in: dayWiseTransaction.transactions },
+      });
+      dayWiseTransaction.totalIncome = transactions
+        .filter((tx) => tx.type === "income")
+        .reduce((sum, tx) => sum + tx.amount, 0);
+      dayWiseTransaction.totalExpense = transactions
+        .filter((tx) => tx.type === "expense")
+        .reduce((sum, tx) => sum + tx.amount, 0);
+    } else if (operation === "delete") {
+      if (!dayWiseTransaction) {
+        return;
+      }
+      dayWiseTransaction.transactions = dayWiseTransaction.transactions.filter(
+        (txId) => txId.toString() !== _id.toString()
       );
+      const transactions = await Transaction.find({
+        _id: { $in: dayWiseTransaction.transactions },
+      });
+      dayWiseTransaction.totalIncome = transactions
+        .filter((tx) => tx.type === "income")
+        .reduce((sum, tx) => sum + tx.amount, 0);
+      dayWiseTransaction.totalExpense = transactions
+        .filter((tx) => tx.type === "expense")
+        .reduce((sum, tx) => sum + tx.amount, 0);
+      if (dayWiseTransaction.transactions.length === 0) {
+        await DayWiseTransaction.deleteOne({ _id: dayWiseTransaction._id });
+        return;
+      }
+    } else {
+      throw new Error("Invalid operation type");
     }
 
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(200, transaction, "Transaction updated successfully")
-      );
+    await dayWiseTransaction.save();
   } catch (error) {
-    return res
-      .status(500)
-      .json(new ApiResponse(500, null, `Internal Server Error: ${error}`));
+    console.error("Error updating DayWiseTransaction:", error);
+    throw error;
   }
-});
+};
 
-const handleDeleteTransaction = asyncHandler(async (req, res) => {
-  try {
-    const transaction = await Transaction.findOneAndDelete({
-      _id: req.params.id,
-      user: req?.user?.id,
-    });
-
-    if (!transaction) {
-      return res
-        .status(404)
-        .json(new ApiResponse(404, null, "Transaction not found"));
-    }
-
-    return res
-      .status(200)
-      .json(new ApiResponse(200, null, "Transaction deleted successfully"));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(new ApiResponse(500, null, `Internal Server Error: ${error}`));
-  }
-});
-
-const handleGetTransactionById = asyncHandler(async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!id) {
-      return res
-        .status(400)
-        .json(new ApiResponse(400, null, "Transaction ID is required"));
-    }
-
-    const userId = req?.user?.id;
-
-    if (!userId) {
-      return res
-        .status(400)
-        .json(new ApiResponse(400, null, "User ID is required"));
-    }
-    const transaction = await Transaction.findOne({
-      _id: id,
-      user: userId,
-    });
-    // .populate("bankAccount", "name")
-    // .populate("category", "name")
-    // .populate("user", "username");
-
-    if (!transaction) {
-      return res
-        .status(404)
-        .json(new ApiResponse(404, null, "Transaction not found"));
-    }
-
-    return res
-      .status(200)
-      .json(new ApiResponse(200, transaction, "Transaction found"));
-  } catch (error) {
-    return res
-      .status(500)
-      .json(new ApiResponse(500, null, `Internal Server Error: ${error}`));
-  }
-});
-
-const handleCreateTransaction = asyncHandler(async (req, res) => {
+export const handleCreateTransaction = asyncHandler(async (req, res) => {
   const {
     type,
     amount,
@@ -165,112 +96,190 @@ const handleCreateTransaction = asyncHandler(async (req, res) => {
     timeOFDay,
   } = req.body;
 
-  try {
-    const fields = { type, amount, category, date };
-    const emptyField = Object.keys(fields).find(
-      (key) => typeof fields[key] === "string" && fields[key].trim() === ""
+  if (!type || !amount || !description || !category || !date) {
+    return res
+      .status(400)
+      .json(new ApiResponse(400, null, "All required fields must be provided"));
+  }
+
+  const transaction = await Transaction.create({
+    type,
+    amount,
+    description,
+    category,
+    date,
+    bankAccount,
+    transactionMethod,
+    transactionStatus,
+    notes,
+    timeOFDay,
+    user: req.user.id,
+  });
+
+  await updateDayWiseSummary(transaction, "create");
+
+  return res
+    .status(201)
+    .json(
+      new ApiResponse(201, transaction, "Transaction created successfully")
     );
+});
 
-    if (emptyField) {
-      throw new ApiError(400, `This field is required: ${emptyField}`);
-    }
+export const handleUpdateTransaction = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const {
+    type,
+    amount,
+    description,
+    category,
+    date,
+    bankAccount,
+    transactionMethod,
+    transactionStatus,
+    notes,
+    timeOFDay,
+  } = req.body;
 
-    const transaction = await Transaction.create({
+  if (!mongoose.isValidObjectId(id)) {
+    return res
+      .status(400)
+      .json(new ApiResponse(400, null, "Invalid transaction ID"));
+  }
+
+  if (!type || !amount || !description || !category || !date) {
+    return res
+      .status(400)
+      .json(new ApiResponse(400, null, "All required fields must be provided"));
+  }
+
+  const transaction = await Transaction.findOneAndUpdate(
+    { _id: id, user: req.user.id },
+    {
       type,
       amount,
       description,
       category,
       date,
-      bankAccount: bankAccount || null,
+      bankAccount,
       transactionMethod,
       transactionStatus,
       notes,
-      user: req?.user?.id,
       timeOFDay,
-    });
+    },
+    { new: true }
+  );
 
+  if (!transaction) {
     return res
-      .status(201)
-      .json(new ApiResponse(201, { transaction }, "transaction created"));
-  } catch (error) {
-    return res
-      .status(500)
+      .status(404)
       .json(
-        new ApiResponse(
-          500,
-          null,
-          `${error.message}` || "Internal Server Error"
-        )
+        new ApiResponse(404, null, "Transaction not found or access denied")
       );
   }
-});
 
-//! Day wise transaction
-const handleDayWiseTransaction = asyncHandler(async (req, res) => {
-  const {
-    type,
-    amount,
-    description,
-    category,
-    date,
-    bankAccount,
-    transactionMethod,
-    transactionStatus,
-    notes,
-    totalAmount,
-    timeOFDay,
-  } = req.body;
+  await updateDayWiseSummary(transaction, "update");
 
-  try {
-    const fields = { type, amount, category, date, totalAmount };
-    const emptyField = Object.keys(fields).find(
-      (key) => typeof fields[key] === "string" && fields[key].trim() === ""
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, transaction, "Transaction updated successfully")
     );
+});
 
-    if (emptyField) {
-      throw new ApiError(400, `This field is required: ${emptyField}`);
-    }
+export const handleDeleteTransaction = asyncHandler(async (req, res) => {
+  const { id } = req.params;
 
-    const transaction = await Transaction.create({
-      type,
-      amount,
-      description: "Day Wise Transaction",
-      category,
-      date,
-      bankAccount: bankAccount || null,
-      transactionMethod,
-      transactionStatus,
-      notes,
-      user: req?.user?.id,
-      timeOFDay,
-      dailyTransactions: [
-        {
-          totalAmount,
-        },
-      ],
-    });
+  if (!mongoose.isValidObjectId(id)) {
+    return res
+      .status(400)
+      .json(new ApiResponse(400, null, "Invalid transaction ID"));
+  }
+
+  const transaction = await Transaction.findOne({ _id: id, user: req.user.id });
+  if (!transaction) {
+    return res
+      .status(404)
+      .json(
+        new ApiResponse(404, null, "Transaction not found or access denied")
+      );
+  }
+
+  await Transaction.deleteOne({ _id: id });
+  await updateDayWiseSummary(transaction, "delete");
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, null, "Transaction deleted successfully"));
+});
+
+export const handleGetTransactionById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  if (!mongoose.isValidObjectId(id)) {
+    return res
+      .status(400)
+      .json(new ApiResponse(400, null, "Invalid transaction ID"));
+  }
+
+  const transaction = await Transaction.findOne({
+    _id: id,
+    user: req.user.id,
+  }).populate("category bankAccount");
+  if (!transaction) {
+    return res
+      .status(404)
+      .json(new ApiResponse(404, null, "Transaction not found"));
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, transaction, "Transaction fetched successfully")
+    );
+});
+
+export const handleGetTransactions = asyncHandler(async (req, res) => {
+  const transactions = await Transaction.find({ user: req.user.id })
+    .populate("category bankAccount")
+    .sort({ date: -1 });
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { transactions },
+        "Transactions fetched successfully"
+      )
+    );
+});
+
+export const handleGetDayWiseSummary = asyncHandler(async (req, res) => {
+  try {
+    const summaries = await DayWiseTransaction.find({ user: req.user.id })
+      .populate({
+        path: "transactions",
+        populate: [
+          { path: "category", select: "name type" },
+          { path: "bankAccount", select: "name accountNumber" },
+        ],
+      })
+      .sort({ date: -1 });
 
     return res
-      .status(201)
+      .status(200)
       .json(
         new ApiResponse(
-          201,
-          { transaction },
-          "Day wise Transaction has created"
+          200,
+          summaries,
+          "Day-wise summaries fetched successfully"
         )
       );
   } catch (error) {
+    console.error("Error in handleGetDayWiseSummary:", error);
     return res
       .status(500)
-      .json(new ApiResponse(500, null, `Internal Server Error: ${error}`));
+      .json(new ApiResponse(500, [], "Failed to fetch day-wise summaries"));
   }
 });
 
-export {
-  handleGetTransactions,
-  handleCreateTransaction,
-  handleUpdateTransaction,
-  handleDeleteTransaction,
-  handleGetTransactionById,
-  handleDayWiseTransaction,
-};
+export default updateDayWiseSummary;

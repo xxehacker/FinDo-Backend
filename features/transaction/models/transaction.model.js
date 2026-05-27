@@ -1,15 +1,5 @@
 import mongoose from "mongoose";
 
-const DayWiseTransactionSchema = new mongoose.Schema(
-  {
-    totalAmount: {
-      type: Number,
-      default: 0,
-    },
-  },
-  { timestamps: false }
-);
-
 const TransactionSchema = new mongoose.Schema(
   {
     type: {
@@ -82,7 +72,6 @@ const TransactionSchema = new mongoose.Schema(
       enum: ["morning", "afternoon", "evening", "night"],
       default: "morning",
     },
-    dailyTransactions: [DayWiseTransactionSchema],
   },
   {
     timestamps: true,
@@ -91,15 +80,10 @@ const TransactionSchema = new mongoose.Schema(
   }
 );
 
-// Indexes
+//! Indexes
 TransactionSchema.index({ user: 1, date: -1 });
 TransactionSchema.index({ user: 1, category: 1 });
 TransactionSchema.index({ user: 1, type: 1 });
-
-// Virtual for formatted date
-TransactionSchema.virtual("formattedDate").get(function () {
-  return this.date.toISOString().split("T")[0]; // YYYY-MM-DD format
-});
 
 const Transaction = mongoose.model("Transaction", TransactionSchema);
 export default Transaction;

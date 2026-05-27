@@ -27,11 +27,14 @@ const handleCreateCategory = asyncHandler(async (req, res) => {
       .status(201)
       .json(new ApiResponse(201, category, "Category created successfully"));
   } catch (error) {
-    console.log("Internal error", error);
+    if (error.code === 11000) {
+      throw new ApiError(400, null, "Category name already exists");
+    }
+
     throw new ApiError(
       500,
       null,
-      "Something went wrong while creating the category"
+      error.message || "Something went wrong while creating the category"
     );
   }
 });
@@ -78,7 +81,7 @@ const handleGetCategory = async (req, res) => {
     res
       .status(200)
       .json(new ApiResponse(200, category, "Category fetched successfully"));
-  } catch (error) {}
+  } catch (error) { }
 };
 
 //! edit category
