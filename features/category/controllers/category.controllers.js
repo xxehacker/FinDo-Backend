@@ -5,12 +5,19 @@ import { ApiResponse } from "../../../utils/ApiResponse.js";
 
 //! create category
 const handleCreateCategory = asyncHandler(async (req, res) => {
-  const { name, description, status } = req.body;
+  const { name, description, status, type } = req.body;
   const userId = req.user.id;
 
   try {
-    if (!name || !description || !status) {
-      throw new ApiError(400, "Name ,description and status are required");
+    if (!name || !description || !status || !type) {
+      throw new ApiError(
+        400,
+        "Name, description, status, and type (income/expense) are required"
+      );
+    }
+
+    if (!["income", "expense"].includes(type)) {
+      throw new ApiError(400, "Type must be income or expense");
     }
 
     if (!userId) {
@@ -21,6 +28,7 @@ const handleCreateCategory = asyncHandler(async (req, res) => {
       name,
       description,
       status,
+      type,
       createdBy: userId,
     });
     res
@@ -87,16 +95,27 @@ const handleGetCategory = async (req, res) => {
 //! edit category
 const handleEditCategory = async (req, res) => {
   const { id } = req.params;
-  const { name, description, status } = req.body;
+  const { name, description, status, type } = req.body;
   try {
     if (!id) {
       throw new ApiError(400, "Category id is missing");
     }
 
+    if (type && !["income", "expense"].includes(type)) {
+      throw new ApiError(400, "Type must be income or expense");
+    }
+
     const category = await Category.findOneAndUpdate(
       { _id: id },
-      { $set: { name, description, status } },
-      { new: true }
+      {
+        $set: {
+          name,
+          description,
+          status,
+          ...(type && { type }),
+        },
+      },
+      { new: true, runValidators: true }
     );
 
     res

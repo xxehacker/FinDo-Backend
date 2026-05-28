@@ -51,6 +51,10 @@ const taskSchema = new mongoose.Schema({
     type: Date,
     required: true,
   },
+  archived: {
+    type: Boolean,
+    default: false,
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",

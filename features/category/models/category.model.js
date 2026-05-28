@@ -5,10 +5,18 @@ const categorySchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
+      trim: true,
     },
     description: {
       type: String,
       required: true,
+    },
+    /** Drives transaction type — e.g. Salary → income, Food → expense */
+    type: {
+      type: String,
+      enum: ["income", "expense"],
+      required: true,
+      default: "expense",
     },
     status: {
       type: String,

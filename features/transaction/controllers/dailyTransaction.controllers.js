@@ -1,11 +1,11 @@
 import { ApiResponse } from "@/../../utils/ApiResponse.js";
 import { asyncHandler } from "@/../../utils/asyncHandler.js";
 import Transaction from "../models/transaction.model.js";
-import DayWiseTransaction from "../models/dailyTransaction.model.js"; 
+import DayWiseTransaction from "../models/dailyTransaction.model.js";
+import { resolveTransactionTypeFromCategory } from "../../category/utils/resolveCategoryType.js";
 
 const handleDayWiseTransaction = asyncHandler(async (req, res) => {
   const {
-    type,
     amount,
     description,
     category,
@@ -18,14 +18,20 @@ const handleDayWiseTransaction = asyncHandler(async (req, res) => {
   } = req.body;
 
   try {
-    //! Validate required fields
-    if (!type || !amount || !category || !date) {
+    if (!amount || !category || !date) {
       return res
         .status(400)
         .json(new ApiResponse(400, null, "Missing required fields."));
     }
 
-    //! Create transaction
+    const { type, error } = await resolveTransactionTypeFromCategory(
+      category,
+      req.user.id
+    );
+    if (error) {
+      return res.status(400).json(new ApiResponse(400, null, error));
+    }
+
     const transaction = await Transaction.create({
       type,
       amount,

@@ -62,11 +62,11 @@ const TransactionSchema = new mongoose.Schema(
       trim: true,
       maxlength: 500,
     },
-    // attachment: {
-    //   type: String,
-    //   trim: true,
-    //   match: [/^https?:\/\/[^\s$.?#].[^\s]*$/, "Please provide a valid URL"],
-    // },
+    attachment: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     timeOFDay: {
       type: String,
       enum: ["morning", "afternoon", "evening", "night"],

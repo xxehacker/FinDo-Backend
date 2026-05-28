@@ -4,87 +4,13 @@ import { asyncHandler } from "../../../utils/asyncHandler.js";
 import Transaction from "../models/transaction.model.js";
 import DayWiseTransaction from "../models/dailyTransaction.model.js";
 import { ApiResponse } from "../../../utils/ApiResponse.js";
-
-const updateDayWiseSummary = async (transaction, operation) => {
-  try {
-    const { user, date, type, amount, _id } = transaction;
-
-    if (!mongoose.isValidObjectId(_id)) {
-      throw new Error("Invalid transaction ID");
-    }
-
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-
-    let dayWiseTransaction = await DayWiseTransaction.findOne({
-      user,
-      date: startOfDay,
-    });
-
-    if (operation === "create") {
-      if (!dayWiseTransaction) {
-        dayWiseTransaction = new DayWiseTransaction({
-          user,
-          date: startOfDay,
-          totalIncome: type === "income" ? amount : 0,
-          totalExpense: type === "expense" ? amount : 0,
-          transactions: [_id],
-        });
-      } else {
-        if (type === "income") {
-          dayWiseTransaction.totalIncome += amount;
-        } else if (type === "expense") {
-          dayWiseTransaction.totalExpense += amount;
-        }
-        dayWiseTransaction.transactions.push(_id);
-      }
-    } else if (operation === "update") {
-      if (!dayWiseTransaction) {
-        throw new Error("DayWiseTransaction not found for update");
-      }
-      const transactions = await Transaction.find({
-        _id: { $in: dayWiseTransaction.transactions },
-      });
-      dayWiseTransaction.totalIncome = transactions
-        .filter((tx) => tx.type === "income")
-        .reduce((sum, tx) => sum + tx.amount, 0);
-      dayWiseTransaction.totalExpense = transactions
-        .filter((tx) => tx.type === "expense")
-        .reduce((sum, tx) => sum + tx.amount, 0);
-    } else if (operation === "delete") {
-      if (!dayWiseTransaction) {
-        return;
-      }
-      dayWiseTransaction.transactions = dayWiseTransaction.transactions.filter(
-        (txId) => txId.toString() !== _id.toString()
-      );
-      const transactions = await Transaction.find({
-        _id: { $in: dayWiseTransaction.transactions },
-      });
-      dayWiseTransaction.totalIncome = transactions
-        .filter((tx) => tx.type === "income")
-        .reduce((sum, tx) => sum + tx.amount, 0);
-      dayWiseTransaction.totalExpense = transactions
-        .filter((tx) => tx.type === "expense")
-        .reduce((sum, tx) => sum + tx.amount, 0);
-      if (dayWiseTransaction.transactions.length === 0) {
-        await DayWiseTransaction.deleteOne({ _id: dayWiseTransaction._id });
-        return;
-      }
-    } else {
-      throw new Error("Invalid operation type");
-    }
-
-    await dayWiseTransaction.save();
-  } catch (error) {
-    console.error("Error updating DayWiseTransaction:", error);
-    throw error;
-  }
-};
+import { resolveTransactionTypeFromCategory } from "../../category/utils/resolveCategoryType.js";
+import updateDayWiseSummary from "../utils/updateDayWiseSummary.js";
+import { importSalaryHistory } from "../services/importSalaryHistory.js";
+import { getSalaryScheduleSummary } from "../constants/salarySchedule.js";
 
 export const handleCreateTransaction = asyncHandler(async (req, res) => {
   const {
-    type,
     amount,
     description,
     category,
@@ -94,12 +20,21 @@ export const handleCreateTransaction = asyncHandler(async (req, res) => {
     transactionStatus,
     notes,
     timeOFDay,
+    attachment,
   } = req.body;
 
-  if (!type || !amount || !description || !category || !date) {
+  if (!amount || !description || !category || !date) {
     return res
       .status(400)
       .json(new ApiResponse(400, null, "All required fields must be provided"));
+  }
+
+  const { type, error } = await resolveTransactionTypeFromCategory(
+    category,
+    req.user.id
+  );
+  if (error) {
+    return res.status(400).json(new ApiResponse(400, null, error));
   }
 
   const transaction = await Transaction.create({
@@ -113,6 +48,7 @@ export const handleCreateTransaction = asyncHandler(async (req, res) => {
     transactionStatus,
     notes,
     timeOFDay,
+    attachment: attachment || "",
     user: req.user.id,
   });
 
@@ -128,7 +64,6 @@ export const handleCreateTransaction = asyncHandler(async (req, res) => {
 export const handleUpdateTransaction = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const {
-    type,
     amount,
     description,
     category,
@@ -138,6 +73,7 @@ export const handleUpdateTransaction = asyncHandler(async (req, res) => {
     transactionStatus,
     notes,
     timeOFDay,
+    attachment,
   } = req.body;
 
   if (!mongoose.isValidObjectId(id)) {
@@ -146,10 +82,18 @@ export const handleUpdateTransaction = asyncHandler(async (req, res) => {
       .json(new ApiResponse(400, null, "Invalid transaction ID"));
   }
 
-  if (!type || !amount || !description || !category || !date) {
+  if (!amount || !description || !category || !date) {
     return res
       .status(400)
       .json(new ApiResponse(400, null, "All required fields must be provided"));
+  }
+
+  const { type, error } = await resolveTransactionTypeFromCategory(
+    category,
+    req.user.id
+  );
+  if (error) {
+    return res.status(400).json(new ApiResponse(400, null, error));
   }
 
   const transaction = await Transaction.findOneAndUpdate(
@@ -165,6 +109,7 @@ export const handleUpdateTransaction = asyncHandler(async (req, res) => {
       transactionStatus,
       notes,
       timeOFDay,
+      attachment: attachment || "",
     },
     { new: true }
   );
@@ -224,7 +169,7 @@ export const handleGetTransactionById = asyncHandler(async (req, res) => {
   const transaction = await Transaction.findOne({
     _id: id,
     user: req.user.id,
-  }).populate("category bankAccount");
+  }).populate("category", "name type status").populate("bankAccount");
   if (!transaction) {
     return res
       .status(404)
@@ -240,7 +185,8 @@ export const handleGetTransactionById = asyncHandler(async (req, res) => {
 
 export const handleGetTransactions = asyncHandler(async (req, res) => {
   const transactions = await Transaction.find({ user: req.user.id })
-    .populate("category bankAccount")
+    .populate("category", "name type status")
+    .populate("bankAccount")
     .sort({ date: -1 });
   return res
     .status(200)
@@ -251,6 +197,20 @@ export const handleGetTransactions = asyncHandler(async (req, res) => {
         "Transactions fetched successfully"
       )
     );
+});
+
+export const handleImportSalaryHistory = asyncHandler(async (req, res) => {
+  const result = await importSalaryHistory(req.user._id);
+  return res.status(200).json(
+    new ApiResponse(200, result, "Salary history import completed")
+  );
+});
+
+export const handleGetSalarySchedulePreview = asyncHandler(async (req, res) => {
+  const schedule = getSalaryScheduleSummary();
+  return res.status(200).json(
+    new ApiResponse(200, { schedule }, "Salary schedule preview")
+  );
 });
 
 export const handleGetDayWiseSummary = asyncHandler(async (req, res) => {
@@ -281,5 +241,3 @@ export const handleGetDayWiseSummary = asyncHandler(async (req, res) => {
       .json(new ApiResponse(500, [], "Failed to fetch day-wise summaries"));
   }
 });
-
-export default updateDayWiseSummary;
