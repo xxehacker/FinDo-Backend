@@ -39,11 +39,14 @@ function formatMonthYear(date) {
 export function buildSalaryEntries() {
   const entries = [];
   for (let i = 0; i < SALARY_MONTH_COUNT; i++) {
-    const date = new Date(SALARY_START.year, SALARY_START.month + i, 1);
+    // Joined May 1, 2025 (employmentMonth = 1 represents May 2025)
+    // First salary credited on June 7, 2025 (i.e. month index SALARY_START.month + i + 1 = 5)
+    const employmentDate = new Date(SALARY_START.year, SALARY_START.month + i, 1);
+    const paymentDate = new Date(SALARY_START.year, SALARY_START.month + i + 1, 7);
     entries.push({
-      date,
+      date: paymentDate,
       amount: getSalaryAmount(i),
-      description: `Salary – ${formatMonthYear(date)}`,
+      description: `Salary – ${formatMonthYear(employmentDate)}`,
       employmentMonth: i + 1,
     });
   }
@@ -51,9 +54,19 @@ export function buildSalaryEntries() {
 }
 
 export function getSalaryScheduleSummary() {
-  return buildSalaryEntries().map((e) => ({
-    month: formatMonthYear(e.date),
-    amount: e.amount,
-    employmentMonth: e.employmentMonth,
-  }));
+  return buildSalaryEntries().map((e) => {
+    // Recover the employmentDate to display the work month nicely in the preview table
+    const offset = e.employmentMonth - 1;
+    const employmentDate = new Date(SALARY_START.year, SALARY_START.month + offset, 1);
+    const formattedPaidDate = e.date.toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+    return {
+      month: `${formatMonthYear(employmentDate)} (Paid: ${formattedPaidDate})`,
+      amount: e.amount,
+      employmentMonth: e.employmentMonth,
+    };
+  });
 }

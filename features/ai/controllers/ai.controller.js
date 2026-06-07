@@ -1,0 +1,241 @@
+import { OpenRouter } from "@openrouter/sdk";
+import mongoose from "mongoose";
+import Transaction from "../../transaction/models/transaction.model.js";
+import EMI from "../../emi/models/emi.model.js";
+import { ApiResponse } from "../../../utils/ApiResponse.js";
+import { asyncHandler } from "../../../utils/asyncHandler.js";
+
+function toUserObjectId(userId) {
+  return userId instanceof mongoose.Types.ObjectId
+    ? userId
+    : new mongoose.Types.ObjectId(String(userId));
+}
+
+// @desc    Generate context-aware AI suggestions using OpenRouter
+// @route   POST /api/v1/ai/suggestion
+// @access  Private
+export const generateAiSuggestions = asyncHandler(async (req, res) => {
+  const userId = toUserObjectId(req.user._id);
+
+  // 1. Fetch financial data
+  const [transactions, emis] = await Promise.all([
+    Transaction.find({ user: userId }).populate("category", "name type").lean(),
+    EMI.find({ user: userId }).populate("wishlistProduct").lean(),
+  ]);
+
+  // 2. Aggregate statistics
+  const totalIncome = transactions
+    .filter((t) => t.type === "income" || t.category?.type === "income")
+    .reduce((sum, t) => sum + (t.amount || 0), 0);
+
+  const totalExpense = transactions
+    .filter((t) => t.type === "expense" || t.category?.type === "expense")
+    .reduce((sum, t) => sum + (t.amount || 0), 0);
+
+  const netBalance = totalIncome - totalExpense;
+
+  const categorySpends = {};
+  transactions
+    .filter((t) => t.type === "expense" || t.category?.type === "expense")
+    .forEach((t) => {
+      const catName = t.category?.name || "Uncategorized";
+      categorySpends[catName] = (categorySpends[catName] || 0) + t.amount;
+    });
+
+  const sortedCategories = Object.keys(categorySpends)
+    .map((cat) => ({ name: cat, amount: categorySpends[cat] }))
+    .sort((a, b) => b.amount - a.amount);
+
+  const activeEmiDebt = emis
+    .filter((e) => e.status === "active")
+    .reduce((sum, e) => sum + (e.remainingAmount || 0), 0);
+
+  const monthlyEmiDues = emis
+    .filter((e) => e.status === "active" && e.installmentAmount)
+    .reduce((sum, e) => sum + e.installmentAmount, 0);
+
+  const recentTransactionsSummary = transactions
+    .slice(0, 10)
+    .map((t) => ` - ${t.description || t.category?.name || "Expense"}: ₹${t.amount} (${t.type})`)
+    .join("\n");
+
+  const emiSummary = emis
+    .filter((e) => e.status === "active")
+    .map((e) => ` - ${e.provider} EMI: ₹${e.installmentAmount}/mo (Remaining Debt: ₹${e.remainingAmount})`)
+    .join("\n");
+
+  // 3. Setup OpenRouter Client
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    return res
+      .status(500)
+      .json(new ApiResponse(500, null, "OpenRouter API Key is missing in environment configuration"));
+  }
+
+  const client = new OpenRouter({
+    apiKey,
+    httpReferer: "https://findo.app",
+    appTitle: "FinDo Finance Manager",
+  });
+
+  const prompt = `
+You are FinDo AI, a professional neo-brutalist financial planner.
+I will provide you with the user's financial summary, recent transactions, and active EMI/BNPL commitments.
+Analyze their spending behavior and provide exactly 3 highly specific, highly actionable, contextual financial insights. Also provide a 'healthScore' out of 100 representing their financial hygiene (higher is better, deduct score for high BNPL debt ratio, high expenses vs income, or low savings rate).
+
+### Financial Profile:
+- Total Income: ₹${totalIncome}
+- Total Expenses: ₹${totalExpense}
+- Net Balance: ₹${netBalance}
+- Savings Rate: ${totalIncome > 0 ? Math.round((netBalance / totalIncome) * 100) : 0}%
+- Top Spending Categories:
+${sortedCategories.slice(0, 3).map((c) => `  * ${c.name}: ₹${c.amount}`).join("\n")}
+- Outstanding BNPL commitment debt: ₹${activeEmiDebt}
+- Monthly committed EMIs: ₹${monthlyEmiDues}
+
+### Active BNPL Details:
+${emiSummary || "No active EMI commitments."}
+
+### Recent Transactions Ledger:
+${recentTransactionsSummary || "No transactions recorded yet."}
+
+You MUST respond with a JSON object in this exact schema. Do not output any HTML tags, backticks, or markdown blocks (like \`\`\`json). Output only the raw valid JSON string.
+
+Schema:
+{
+  "healthScore": 75,
+  "insights": [
+    {
+      "type": "warning" | "danger" | "success" | "info",
+      "title": "Title of insight",
+      "description": "Short 1-2 sentence detailed contextual description.",
+      "tip": "Actionable Tip: Start with 'Actionable Tip: ' and suggest a concrete step."
+    }
+  ]
+}
+`;
+
+  try {
+    const completion = await client.chat.send({
+      model: "~openai/gpt-latest",
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    });
+
+    let content = completion?.choices?.[0]?.message?.content || "";
+    
+    // Safety check: Clean code block markers if the model outputs them anyway
+    content = content.replace(/```json/g, "").replace(/```/g, "").trim();
+
+    const parsed = JSON.parse(content);
+    return res.status(200).json(new ApiResponse(200, parsed, "AI Suggestions successfully generated by OpenRouter"));
+  } catch (err) {
+    console.error("OpenRouter API Error:", err);
+    return res
+      .status(502)
+      .json(new ApiResponse(502, null, `Failed to compile AI insights: ${err.message}`));
+  }
+});
+
+// @desc    Interactive financial Q&A chat endpoint
+// @route   POST /api/v1/ai/chat
+// @access  Private
+export const handleAiChat = asyncHandler(async (req, res) => {
+  const userId = toUserObjectId(req.user._id);
+  const { message, history = [] } = req.body;
+
+  if (!message?.trim()) {
+    return res.status(400).json(new ApiResponse(400, null, "Message prompt is required"));
+  }
+
+  // 1. Fetch current context
+  const [transactions, emis] = await Promise.all([
+    Transaction.find({ user: userId }).populate("category", "name type").lean(),
+    EMI.find({ user: userId }).populate("wishlistProduct").lean(),
+  ]);
+
+  const totalIncome = transactions
+    .filter((t) => t.type === "income" || t.category?.type === "income")
+    .reduce((sum, t) => sum + (t.amount || 0), 0);
+
+  const totalExpense = transactions
+    .filter((t) => t.type === "expense" || t.category?.type === "expense")
+    .reduce((sum, t) => sum + (t.amount || 0), 0);
+
+  const categorySpends = {};
+  transactions
+    .filter((t) => t.type === "expense" || t.category?.type === "expense")
+    .forEach((t) => {
+      const catName = t.category?.name || "Uncategorized";
+      categorySpends[catName] = (categorySpends[catName] || 0) + t.amount;
+    });
+
+  const sortedCategories = Object.keys(categorySpends)
+    .map((cat) => ({ name: cat, amount: categorySpends[cat] }))
+    .sort((a, b) => b.amount - a.amount);
+
+  const activeEmiDebt = emis
+    .filter((e) => e.status === "active")
+    .reduce((sum, e) => sum + (e.remainingAmount || 0), 0);
+
+  const monthlyEmiDues = emis
+    .filter((e) => e.status === "active" && e.installmentAmount)
+    .reduce((sum, e) => sum + e.installmentAmount, 0);
+
+  // Setup prompt
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    return res
+      .status(500)
+      .json(new ApiResponse(500, null, "OpenRouter API Key is missing"));
+  }
+
+  const client = new OpenRouter({
+    apiKey,
+    httpReferer: "https://findo.app",
+    appTitle: "FinDo Finance Manager",
+  });
+
+  const messagesPayload = [
+    {
+      role: "system",
+      content: `You are FinDo AI, a professional neo-brutalist financial planner. Answer the user's financial questions based on their real ledger context.
+Current Financial Context:
+- Total Income: ₹${totalIncome}
+- Total Expenses: ₹${totalExpense}
+- Net Balance: ₹${totalIncome - totalExpense}
+- Savings Rate: ${totalIncome > 0 ? Math.round(((totalIncome - totalExpense) / totalIncome) * 100) : 0}%
+- Top Spends: ${sortedCategories.slice(0, 3).map((c) => `${c.name}: ₹${c.amount}`).join(", ")}
+- Outstanding BNPL commits: ₹${activeEmiDebt} (Monthly EMI commitments: ₹${monthlyEmiDues})
+
+Provide clear, professional, and actionable financial advice. Keep answers under 3-4 sentences. Format neatly in plain text.`,
+    },
+    ...history.map((h) => ({
+      role: h.role === "ai" ? "assistant" : "user",
+      content: h.content,
+    })),
+    {
+      role: "user",
+      content: message,
+    },
+  ];
+
+  try {
+    const completion = await client.chat.send({
+      model: "~openai/gpt-latest",
+      messages: messagesPayload,
+    });
+
+    const reply = completion?.choices?.[0]?.message?.content || "I am currently analyzing your cash-flow structure. Please ask again in a moment.";
+    return res.status(200).json(new ApiResponse(200, { reply }, "AI Assistant response compiled successfully"));
+  } catch (err) {
+    console.error("OpenRouter Chat Error:", err);
+    return res
+      .status(502)
+      .json(new ApiResponse(502, null, `AI Assistant offline: ${err.message}`));
+  }
+});

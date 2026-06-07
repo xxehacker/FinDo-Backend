@@ -21,7 +21,10 @@
   "author": "Mridupawan Bordoloi",
   "license": "ISC",
   "dependencies": {
+    "@openrouter/sdk": "^0.12.35",
+    "axios": "^1.16.1",
     "bcryptjs": "^3.0.2",
+    "cheerio": "^1.2.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
@@ -29,7 +32,10 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.17.0",
-    "multer": "^2.0.2"
+    "multer": "^2.0.2",
+    "puppeteer": "^25.1.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"

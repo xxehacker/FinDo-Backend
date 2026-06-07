@@ -8,6 +8,9 @@ import categoryRouter from "./category/routes/category.routes.js";
 import dashboardRouter from "./dashboard/routes/dashboard.routes.js";
 import productRouter from "./product/routes/product.routes.js";
 import uploadRouter from "./upload/routes/upload.routes.js";
+import wishlistRouter from "./wishlist/routes/wishlist.routes.js";
+import emiRouter from "./emi/routes/emi.routes.js";
+import aiRouter from "./ai/routes/ai.routes.js";
 
 const router = express.Router();
 
@@ -19,5 +22,8 @@ router.use("/task", authenticateToken, taskRouter);
 router.use("/dashboard", authenticateToken, dashboardRouter);
 router.use("/product", authenticateToken, productRouter);
 router.use("/upload", authenticateToken, uploadRouter);
+router.use("/wishlist", authenticateToken, wishlistRouter);
+router.use("/emi", authenticateToken, emiRouter);
+router.use("/ai", authenticateToken, aiRouter);
 
 export default router;

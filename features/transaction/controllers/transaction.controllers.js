@@ -48,11 +48,19 @@ export const handleCreateTransaction = asyncHandler(async (req, res) => {
     transactionStatus,
     notes,
     timeOFDay,
+    isDayWise: isDayWise || false,
     attachment: attachment || "",
     user: req.user.id,
   });
 
-  await updateDayWiseSummary(transaction, "create");
+  if (transaction.isDayWise) {
+    await updateDayWiseSummary(transaction, "create");
+  }
+
+  await transaction.populate([
+    { path: "category", select: "name type status" },
+    { path: "bankAccount" }
+  ]);
 
   return res
     .status(201)
@@ -73,6 +81,7 @@ export const handleUpdateTransaction = asyncHandler(async (req, res) => {
     transactionStatus,
     notes,
     timeOFDay,
+    isDayWise,
     attachment,
   } = req.body;
 
@@ -96,21 +105,24 @@ export const handleUpdateTransaction = asyncHandler(async (req, res) => {
     return res.status(400).json(new ApiResponse(400, null, error));
   }
 
+  const updateFields = {
+    type,
+    amount,
+    description,
+    category,
+    date,
+    bankAccount,
+    transactionMethod,
+    transactionStatus,
+    notes,
+    timeOFDay,
+    isDayWise,
+    attachment: attachment || "",
+  };
+
   const transaction = await Transaction.findOneAndUpdate(
     { _id: id, user: req.user.id },
-    {
-      type,
-      amount,
-      description,
-      category,
-      date,
-      bankAccount,
-      transactionMethod,
-      transactionStatus,
-      notes,
-      timeOFDay,
-      attachment: attachment || "",
-    },
+    updateFields,
     { new: true }
   );
 
@@ -122,7 +134,14 @@ export const handleUpdateTransaction = asyncHandler(async (req, res) => {
       );
   }
 
-  await updateDayWiseSummary(transaction, "update");
+  if (transaction.isDayWise) {
+    await updateDayWiseSummary(transaction, "update");
+  }
+
+  await transaction.populate([
+    { path: "category", select: "name type status" },
+    { path: "bankAccount" }
+  ]);
 
   return res
     .status(200)
@@ -225,12 +244,52 @@ export const handleGetDayWiseSummary = asyncHandler(async (req, res) => {
       })
       .sort({ date: -1 });
 
+    // Merge duplicate dates in-memory to prevent layout issues from legacy database race conditions
+    const mergedMap = new Map();
+    for (const summary of summaries) {
+      if (!summary.date) continue;
+      const startOfDay = new Date(summary.date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const dateKey = startOfDay.getTime();
+
+      if (!mergedMap.has(dateKey)) {
+        mergedMap.set(dateKey, {
+          _id: summary._id,
+          date: summary.date,
+          user: summary.user,
+          totalIncome: summary.totalIncome || 0,
+          totalExpense: summary.totalExpense || 0,
+          transactions: summary.transactions ? [...summary.transactions] : [],
+          createdAt: summary.createdAt,
+          updatedAt: summary.updatedAt,
+        });
+      } else {
+        const existing = mergedMap.get(dateKey);
+        existing.totalIncome += summary.totalIncome || 0;
+        existing.totalExpense += summary.totalExpense || 0;
+        
+        // Append unique transactions only
+        if (summary.transactions) {
+          const existingTxIds = new Set(existing.transactions.map((t) => String(t._id)));
+          for (const tx of summary.transactions) {
+            if (tx && !existingTxIds.has(String(tx._id))) {
+              existing.transactions.push(tx);
+            }
+          }
+        }
+      }
+    }
+
+    const mergedSummaries = Array.from(mergedMap.values()).sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+
     return res
       .status(200)
       .json(
         new ApiResponse(
           200,
-          summaries,
+          mergedSummaries,
           "Day-wise summaries fetched successfully"
         )
       );
